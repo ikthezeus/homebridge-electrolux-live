@@ -1,8 +1,8 @@
-import { ApplianceItem } from '../definitions/appliances';
+import { ApplianceItem } from '../definitions/appliances.js';
 import { CharacteristicValue, PlatformAccessory } from 'homebridge';
-import { ElectroluxDevicesPlatform } from '../platform';
-import { Appliance } from '../definitions/appliance';
-import { ApplianceState } from '../definitions/applianceState';
+import { ElectroluxDevicesPlatform } from '../platform.js';
+import { Appliance } from '../definitions/appliance.js';
+import { ApplianceState } from '../definitions/applianceState.js';
 
 export abstract class ElectroluxAccessoryController {
     platform: ElectroluxDevicesPlatform;

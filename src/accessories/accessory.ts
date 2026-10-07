@@ -1,6 +1,6 @@
 import { PlatformAccessory } from 'homebridge';
-import { ElectroluxAccessoryController } from './controller';
-import { Context } from '../definitions/context';
+import { ElectroluxAccessoryController } from './controller.js';
+import { Context } from '../definitions/context.js';
 
 export class ElectroluxAccessory {
     controller?: ElectroluxAccessoryController;

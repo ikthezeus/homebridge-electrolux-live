@@ -1,11 +1,11 @@
 import { CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
 
-import { ElectroluxDevicesPlatform } from '../../../platform';
-import { Appliance } from '../../../definitions/appliance';
-import { ElectroluxAccessoryController } from '../../controller';
-import { isParticleFilter } from '../../../util/filters';
-import { ApplianceItem } from '../../../definitions/appliances';
-import { ApplianceState } from '../../../definitions/applianceState';
+import { ElectroluxDevicesPlatform } from '../../../platform.js';
+import { Appliance } from '../../../definitions/appliance.js';
+import { ElectroluxAccessoryController } from '../../controller.js';
+import { isParticleFilter } from '../../../util/filters.js';
+import { ApplianceItem } from '../../../definitions/appliances.js';
+import { ApplianceState } from '../../../definitions/applianceState.js';
 
 export class AirPurifier extends ElectroluxAccessoryController {
     private airPurifierService: Service;

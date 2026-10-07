@@ -1,4 +1,4 @@
-import { Mode } from './applianceState';
+import { Mode } from './applianceState.js';
 
 export type DeviceType = 'PORTABLE_AIR_CONDITIONER' | 'AIR_PURIFIER';
 

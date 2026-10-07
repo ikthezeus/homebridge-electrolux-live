@@ -1,8 +1,8 @@
-import { Comfort600 } from '../accessories/devices/comfort600';
-import { WellA7 } from '../accessories/devices/airPurifier/wellA7';
-import { PureA9 } from '../accessories/devices/airPurifier/pureA9';
-import { UltimateHome500 } from '../accessories/devices/airPurifier/ultimateHome500';
-import { AirPurifier } from '../accessories/devices/airPurifier/airPurifier';
+import { Comfort600 } from '../accessories/devices/comfort600.js';
+import { WellA7 } from '../accessories/devices/airPurifier/wellA7.js';
+import { PureA9 } from '../accessories/devices/airPurifier/pureA9.js';
+import { UltimateHome500 } from '../accessories/devices/airPurifier/ultimateHome500.js';
+import { AirPurifier } from '../accessories/devices/airPurifier/airPurifier.js';
 
 export const DEVICES = {
     /* Air conditioners */

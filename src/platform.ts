@@ -8,22 +8,22 @@ import {
     Characteristic
 } from 'homebridge';
 
-import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
-import { Appliances } from './definitions/appliances';
-import { DEVICES } from './const/devices';
-import { TokenResponse } from './definitions/auth';
-import { ElectroluxAccessory } from './accessories/accessory';
+import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
+import { Appliances } from './definitions/appliances.js';
+import { DEVICES } from './const/devices.js';
+import { TokenResponse } from './definitions/auth.js';
+import { ElectroluxAccessory } from './accessories/accessory.js';
 import fs from 'fs';
 import path from 'path';
-import { API_URL } from './const/url';
-import { Appliance } from './definitions/appliance';
-import { Context } from './definitions/context';
+import { API_URL } from './const/url.js';
+import { Appliance } from './definitions/appliance.js';
+import { Context } from './definitions/context.js';
 import axios, {
     AxiosError,
     AxiosInstance,
     InternalAxiosRequestConfig
 } from 'axios';
-import { ApplianceState } from './definitions/applianceState';
+import { ApplianceState } from './definitions/applianceState.js';
 
 /*
     HomebridgePlatform
@@ -31,9 +31,8 @@ import { ApplianceState } from './definitions/applianceState';
     parse the user config and discover/register accessories with Homebridge.
 */
 export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
-    public readonly Service: typeof Service = this.api.hap.Service;
-    public readonly Characteristic: typeof Characteristic =
-        this.api.hap.Characteristic;
+    public readonly Service: typeof Service;
+    public readonly Characteristic: typeof Characteristic;
 
     public readonly accessories: ElectroluxAccessory[] = [];
 
@@ -53,6 +52,9 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
         public readonly config: PlatformConfig,
         public readonly api: API
     ) {
+        this.Service = api.hap.Service;
+        this.Characteristic = api.hap.Characteristic;
+
         // When this event is fired it means Homebridge has restored all cached accessories from disk.
         // Dynamic Platform plugins should only register new accessories after this event was fired,
         // in order to ensure they weren't added to homebridge already. This event can also be used

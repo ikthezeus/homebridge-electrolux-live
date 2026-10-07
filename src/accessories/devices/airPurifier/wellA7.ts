@@ -1,11 +1,11 @@
 import { CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
-import { ElectroluxDevicesPlatform } from '../../../platform';
-import { AirPurifier } from './airPurifier';
-import { ElectroluxAccessoryController } from '../../controller';
-import { Appliance } from '../../../definitions/appliance';
-import { tvocPPBToVocDensity } from '../../../util/voc';
-import { ApplianceItem } from '../../../definitions/appliances';
-import { ApplianceState } from '../../../definitions/applianceState';
+import { ElectroluxDevicesPlatform } from '../../../platform.js';
+import { AirPurifier } from './airPurifier.js';
+import { ElectroluxAccessoryController } from '../../controller.js';
+import { Appliance } from '../../../definitions/appliance.js';
+import { tvocPPBToVocDensity } from '../../../util/voc.js';
+import { ApplianceItem } from '../../../definitions/appliances.js';
+import { ApplianceState } from '../../../definitions/applianceState.js';
 
 export class WellA7 extends AirPurifier {
     private ionizerService: Service;

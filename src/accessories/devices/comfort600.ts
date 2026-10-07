@@ -1,14 +1,14 @@
 import { PlatformAccessory, CharacteristicValue, Service } from 'homebridge';
-import { ElectroluxDevicesPlatform } from '../../platform';
-import { Appliance } from '../../definitions/appliance';
+import { ElectroluxDevicesPlatform } from '../../platform.js';
+import { Appliance } from '../../definitions/appliance.js';
 import _ from 'lodash';
-import { ElectroluxAccessoryController } from '../controller';
-import { ApplianceItem } from '../../definitions/appliances';
+import { ElectroluxAccessoryController } from '../controller.js';
+import { ApplianceItem } from '../../definitions/appliances.js';
 import {
     ApplianceState,
     FanSpeedSetting,
     Mode
-} from '../../definitions/applianceState';
+} from '../../definitions/applianceState.js';
 
 /**
  * Platform Accessory

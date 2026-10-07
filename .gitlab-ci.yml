@@ -1,4 +1,4 @@
-﻿stages:
+stages:
   - validate
 
 validate:
@@ -8,7 +8,6 @@ validate:
   parallel:
     matrix:
       - NODE_VERSION:
-          - "20"
           - "22"
           - "24"
 

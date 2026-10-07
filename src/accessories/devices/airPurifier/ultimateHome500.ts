@@ -1,10 +1,10 @@
 import type { CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
-import { ElectroluxDevicesPlatform } from '../../../platform';
-import { AirPurifier } from './airPurifier';
-import { ElectroluxAccessoryController } from '../../controller';
-import { Appliance } from '../../../definitions/appliance';
-import { ApplianceState } from '../../../definitions/applianceState';
-import { ApplianceItem } from '../../../definitions/appliances';
+import { ElectroluxDevicesPlatform } from '../../../platform.js';
+import { AirPurifier } from './airPurifier.js';
+import { ElectroluxAccessoryController } from '../../controller.js';
+import { Appliance } from '../../../definitions/appliance.js';
+import { ApplianceState } from '../../../definitions/applianceState.js';
+import { ApplianceItem } from '../../../definitions/appliances.js';
 
 export class UltimateHome500 extends AirPurifier {
     private uvLightService: Service;
