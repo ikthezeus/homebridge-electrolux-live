@@ -1,7 +1,6 @@
 import { PlatformAccessory, CharacteristicValue, Service } from 'homebridge';
 import { ElectroluxDevicesPlatform } from '../../platform.js';
 import { Appliance } from '../../definitions/appliance.js';
-import _ from 'lodash';
 import { ElectroluxAccessoryController } from '../controller.js';
 import { ApplianceItem } from '../../definitions/appliances.js';
 import {
@@ -233,11 +232,22 @@ export class Comfort600 extends ElectroluxAccessoryController {
             );
     }
 
-    private setTemperature = _.debounce(async (value: CharacteristicValue) => {
-        this.sendCommand({
-            targetTemperatureC: value
-        });
-    }, 1000);
+    private temperatureDebounceTimer: ReturnType<typeof setTimeout> | null =
+        null;
+
+    private setTemperature(value: CharacteristicValue) {
+        if (this.temperatureDebounceTimer) {
+            clearTimeout(this.temperatureDebounceTimer);
+        }
+
+        this.temperatureDebounceTimer = setTimeout(() => {
+            this.temperatureDebounceTimer = null;
+
+            void this.sendCommand({
+                targetTemperatureC: value
+            });
+        }, 1000);
+    }
 
     async getActive(): Promise<CharacteristicValue> {
         return this.state.properties.reported.applianceState === 'running'

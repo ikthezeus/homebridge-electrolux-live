@@ -68,6 +68,8 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
 
     private static readonly LIVESTREAM_RESYNC_INTERVAL_MS = 15 * 60_000;
 
+    private readonly configured: boolean;
+
     constructor(
         public readonly log: Logger,
         public readonly config: PlatformConfig,
@@ -75,6 +77,15 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
     ) {
         this.Service = api.hap.Service;
         this.Characteristic = api.hap.Characteristic;
+
+        this.configured = this.hasRequiredConfiguration();
+
+        if (!this.configured) {
+            this.log.warn(
+                'Homebridge Electrolux Live is not configured. Add both an Electrolux API key and refresh token in the plugin settings before starting the integration.'
+            );
+            return;
+        }
 
         // When this event is fired it means Homebridge has restored all cached accessories from disk.
         // Dynamic Platform plugins should only register new accessories after this event was fired,
@@ -126,11 +137,32 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
         });
     }
 
+    private hasRequiredConfiguration() {
+        const apiKey =
+            typeof this.config.apiKey === 'string'
+                ? this.config.apiKey.trim()
+                : '';
+
+        const refreshToken =
+            typeof this.config.refreshToken === 'string'
+                ? this.config.refreshToken.trim()
+                : '';
+
+        return apiKey.length > 0 && refreshToken.length > 0;
+    }
+
     /*
         This function is invoked when homebridge restores cached accessories from disk at startup.
         It should be used to setup event handlers for characteristics and update respective values.
     */
     configureAccessory(accessory: PlatformAccessory<Context>) {
+        if (!this.configured) {
+            this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
+                accessory
+            ]);
+            return;
+        }
+
         this.log.info('Loading accessory from cache:', accessory.displayName);
 
         // add the restored accessory to the accessories cache so we can track if it has already been registered
@@ -140,7 +172,7 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
     async createClient() {
         if (!this.config.apiKey) {
             throw new Error(
-                'Please make sure the plugin is configured properly. Check https://github.com/tomekkleszcz/homebridge-electrolux-devices?tab=readme-ov-file#-installation for more information.'
+                'Homebridge Electrolux Live is not configured. Add an Electrolux API key and refresh token in the plugin settings. See https://github.com/ikthezeus/homebridge-electrolux-live#configuration for details.'
             );
         }
 
@@ -632,103 +664,114 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
 
         const appliances = await this.getAppliances();
 
-        appliances.map(async (applianceItem) => {
-            if (!DEVICES[applianceItem.applianceType]) {
-                this.log.warn(
-                    'Accessory not found for model:',
-                    applianceItem.applianceType
-                );
+        await Promise.all(
+            appliances.map(async (applianceItem) => {
+                if (!DEVICES[applianceItem.applianceType]) {
+                    this.log.warn(
+                        'Accessory not found for model:',
+                        applianceItem.applianceType
+                    );
 
-                const applianceInfo = await this.getApplianceInfo(
+                    const applianceInfo = await this.getApplianceInfo(
+                        applianceItem.applianceId
+                    );
+
+                    const deviceData = {
+                        appliance: {
+                            type: applianceItem.applianceType,
+                            deviceType: applianceInfo?.applianceInfo.deviceType,
+                            model: applianceInfo?.applianceInfo.model,
+                            variant: applianceInfo?.applianceInfo.variant,
+                            colour: applianceInfo?.applianceInfo.colour
+                        },
+                        capabilities: applianceInfo?.capabilities
+                    };
+
+                    this.log.warn(
+                        'It looks like this appliance is not supported by the plugin. Please create a new issue here: https://github.com/ikthezeus/homebridge-electrolux-live/issues and include the log below in the description.'
+                    );
+                    this.log.warn(JSON.stringify(deviceData));
+                    return;
+                }
+
+                const state = await this.getApplianceState(
                     applianceItem.applianceId
                 );
 
-                const deviceData = {
-                    appliance: {
-                        type: applianceItem.applianceType,
-                        deviceType: applianceInfo?.applianceInfo.deviceType,
-                        model: applianceInfo?.applianceInfo.model,
-                        variant: applianceInfo?.applianceInfo.variant,
-                        colour: applianceInfo?.applianceInfo.colour
-                    },
-                    capabilities: applianceInfo?.capabilities
-                };
+                if (!state) {
+                    this.log.warn(
+                        'State not found for appliance:',
+                        applianceItem.applianceId
+                    );
+                    return;
+                }
 
-                this.log.warn(
-                    'It looks like this appliance is not supported by the plugin. Please create a new issue here: https://github.com/tomekkleszcz/homebridge-electrolux-devices/issues and include the log below in the description.'
-                );
-                this.log.warn(JSON.stringify(deviceData));
-                return;
-            }
-
-            const state = await this.getApplianceState(
-                applianceItem.applianceId
-            );
-
-            if (!state) {
-                this.log.warn(
-                    'State not found for appliance:',
+                const uuid = this.api.hap.uuid.generate(
                     applianceItem.applianceId
                 );
-                return;
-            }
 
-            const uuid = this.api.hap.uuid.generate(applianceItem.applianceId);
+                const existingAccessory = this.accessories.find(
+                    (accessory) => accessory.platformAccessory.UUID === uuid
+                );
 
-            const existingAccessory = this.accessories.find(
-                (accessory) => accessory.platformAccessory.UUID === uuid
-            );
-
-            /* 
+                /*
                 Get the capabilities of the appliance from the context.
                 If the capabilities are not in the context, fetch them from the API.
                 If the capabilities equals null, that means the appliance capabilities is not supported.
             */
-            const appliance =
-                existingAccessory?.platformAccessory.context.appliance !==
-                undefined
-                    ? existingAccessory.platformAccessory.context.appliance
-                    : await this.getApplianceInfo(applianceItem.applianceId);
+                const appliance =
+                    existingAccessory?.platformAccessory.context.appliance !==
+                    undefined
+                        ? existingAccessory.platformAccessory.context.appliance
+                        : await this.getApplianceInfo(
+                              applianceItem.applianceId
+                          );
 
-            if (existingAccessory) {
+                if (existingAccessory) {
+                    this.log.info(
+                        'Restoring existing accessory from cache:',
+                        existingAccessory.platformAccessory.displayName
+                    );
+                    existingAccessory.controller = new DEVICES[
+                        applianceItem.applianceType
+                    ](
+                        this,
+                        existingAccessory.platformAccessory,
+                        applianceItem,
+                        state,
+                        appliance
+                    );
+                    return;
+                }
+
                 this.log.info(
-                    'Restoring existing accessory from cache:',
-                    existingAccessory.platformAccessory.displayName
+                    'Adding new accessory:',
+                    applianceItem.applianceName
                 );
-                existingAccessory.controller = new DEVICES[
-                    applianceItem.applianceType
-                ](
-                    this,
-                    existingAccessory.platformAccessory,
-                    applianceItem,
-                    state,
-                    appliance
+
+                const platformAccessory = new this.api.platformAccessory(
+                    applianceItem.applianceName,
+                    uuid
                 );
-                return;
-            }
-
-            this.log.info('Adding new accessory:', applianceItem.applianceName);
-
-            const platformAccessory = new this.api.platformAccessory(
-                applianceItem.applianceName,
-                uuid
-            );
-            const accessory = new ElectroluxAccessory(
-                platformAccessory,
-                new DEVICES[applianceItem.applianceType](
-                    this,
+                const accessory = new ElectroluxAccessory(
                     platformAccessory,
-                    applianceItem,
-                    state,
-                    appliance
-                )
-            );
-            this.accessories.push(accessory);
+                    new DEVICES[applianceItem.applianceType](
+                        this,
+                        platformAccessory,
+                        applianceItem,
+                        state,
+                        appliance
+                    )
+                );
+                this.accessories.push(accessory);
 
-            this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [
-                platformAccessory
-            ]);
-        });
+                this.api.registerPlatformAccessories(
+                    PLUGIN_NAME,
+                    PLATFORM_NAME,
+                    [platformAccessory]
+                );
+            })
+        );
 
         this.log.info('Devices discovered!');
         this.devicesDiscovered = true;
@@ -763,7 +806,15 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
             return;
         }
 
-        controller.update(controller.state);
+        try {
+            controller.update(controller.state);
+        } catch (error) {
+            this.log.warn(
+                '[Livestream/M2] Failed to apply livestream update for appliance %s: %s',
+                event.applianceId,
+                error instanceof Error ? error.message : String(error)
+            );
+        }
     }
 
     async pollStatus() {

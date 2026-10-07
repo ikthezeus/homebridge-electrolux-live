@@ -1,24 +1,25 @@
 stages:
-  - validate
+    - validate
 
 validate:
-  stage: validate
-  image: node:${NODE_VERSION}
+    stage: validate
+    image: node:${NODE_VERSION}
 
-  parallel:
-    matrix:
-      - NODE_VERSION:
-          - "22"
-          - "24"
+    parallel:
+        matrix:
+            - NODE_VERSION:
+                  - '22'
+                  - '24'
+                  - '26'
 
-  cache:
-    key: npm-${NODE_VERSION}
-    paths:
-      - .npm/
+    cache:
+        key: npm-${NODE_VERSION}
+        paths:
+            - .npm/
 
-  before_script:
-    - npm ci --cache .npm --prefer-offline
+    before_script:
+        - npm ci --cache .npm --prefer-offline
 
-  script:
-    - npm run lint
-    - npm run build
+    script:
+        - npm run lint
+        - npm run build

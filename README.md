@@ -1,107 +1,126 @@
-﻿# Homebridge Electrolux Live
+# Homebridge Electrolux Live
 
 Homebridge plugin for Electrolux and AEG appliances using the Electrolux
-Developer API, with a focus on real-time livestream/SSE state synchronisation
-and robust command handling.
+Developer API, with real-time livestream/SSE state synchronisation and
+defensive command handling.
 
-> **Development status**
->
-> Homebridge Electrolux Live is currently under active development and has not
-> yet reached its first production release.
+## Highlights
 
-## Project origin
+- Electrolux Developer API livestream/SSE is the primary authoritative state source.
+- Cached Get Appliance State is used for startup, periodic resynchronisation and fallback.
+- A HomeKit action produces at most one Electrolux command request from the plugin.
+- Appliance command requests are not retried merely because Electrolux returns HTTP 500 or times out.
+- Refresh-token handling includes bounded retries, backoff, single-flight refresh and persistent token rotation.
+- Homebridge 2 and current supported Node.js LTS releases are supported.
+
+## Why this project exists
 
 Homebridge Electrolux Live is derived from
 [`homebridge-electrolux-devices`](https://github.com/tomekkleszcz/homebridge-electrolux-devices)
 by Tomek Kleszcz.
 
-The original project is licensed under the Apache License 2.0. The upstream
-source used to create this project is preserved by the
-`upstream-v1.1.1-baseline` Git tag.
-
-See [`NOTICE`](NOTICE) and [`LICENSE`](LICENSE) for details.
-
-## Why this project exists
-
-The original plugin uses the Electrolux Developer API successfully for device
-discovery and control, but primarily relies on the cached Get Appliance State
-API for state synchronisation.
-
 During investigation of an AEG Comfort 6000 air conditioner, Electrolux
-confirmed that:
+confirmed that the command API can time out after a command has already reached
+the appliance, and that internal service retry behaviour can result in duplicate
+physical deliveries. Electrolux also confirmed that Get Appliance State is
+cache-backed and recommended the Developer API livestream for timely state
+updates.
 
-- a command can successfully reach an appliance while the command API later
-  returns HTTP 500;
-- internal timeout/retry behaviour can cause the same command to be delivered
-  to the appliance two or three times;
-- Get Appliance State is cache-backed and is not intended for high-frequency
-  state tracking;
-- the Developer API livestream should be used for timely appliance state
-  updates.
+This project therefore treats the livestream as the primary state source and
+does not retry appliance commands on uncertain HTTP 500 responses.
 
-Homebridge Electrolux Live is being developed around that architecture.
+## Installation
 
-## Planned architecture
+The easiest method is through the Homebridge UI:
 
-### Appliance state
+1. Open **Plugins**.
+2. Search for `homebridge-electrolux-live`.
+3. Install **Homebridge Electrolux Live**.
+4. Open the plugin settings and enter your Electrolux Developer API credentials.
 
-Primary:
+Command-line installation is also supported:
 
-- Electrolux Developer API livestream / Server-Sent Events (SSE).
+```bash
+npm install -g homebridge-electrolux-live
+```
 
-Fallback:
+## Configuration
 
-- Get Appliance State during startup;
-- resynchronisation after a livestream reconnect;
-- optional low-frequency safety polling.
+The plugin uses the Homebridge Plugin Settings GUI.
 
-### Commands
+Required:
 
-Each HomeKit action will result in at most one command request from the plugin.
+- `apiKey` - Electrolux Developer API key.
+- `refreshToken` - Electrolux Developer API refresh token.
 
-The plugin will not retry appliance commands merely because Electrolux returns
-a timeout or HTTP 500. Where possible, the resulting appliance state will be
-confirmed through the livestream.
+Optional:
 
-### Command reconciliation
+- `pollingInterval` - fallback/resynchronisation polling interval in seconds. Default: `120`.
+- `carbonDioxideSensorAlarmValue` - CO2 alarm threshold. Default: `1000`.
+- `vocMolecularWeight` - VOC molecular weight used by inherited air-purifier mappings. Default: `30.026`.
 
-The design will distinguish between:
+A polling interval below 120 seconds is discouraged because it can increase
+Electrolux API rate-limit pressure.
 
-- command accepted and confirmed;
-- command result uncertain while awaiting livestream state;
-- genuine command failure.
+Rotated authentication data is stored inside the Homebridge storage directory
+as `homebridge_electrolux_device_persist.json`.
 
-This is necessary because the Electrolux command API can currently report an
-error after the appliance has already executed the command.
+## Supported devices
 
-## Supported upstream devices
+The inherited device mappings currently include:
 
-The inherited upstream implementation currently includes support for:
-
-- Comfort 600 air conditioner;
+- Comfort 600 / Comfort 6000 portable air conditioner;
 - Well A5 / AX5 air purifier;
 - Well A7 air purifier;
 - Pure A9 / AX9 air purifier;
 - UltimateHome 500 air purifier.
 
-Existing mappings will be retained while the state and command architecture is
-modernised.
+Unsupported Electrolux appliances can be reported through the
+[GitHub issue tracker](https://github.com/ikthezeus/homebridge-electrolux-live/issues).
 
-## Installation
+## State synchronisation
 
-Do not install this development version on a production Homebridge instance yet.
+Primary:
 
-Installation and migration instructions will be added before the first release.
+- Electrolux Developer API livestream / Server-Sent Events (SSE).
+
+Fallback and resynchronisation:
+
+- Get Appliance State at startup;
+- slow fallback polling when the livestream is disconnected;
+- periodic resynchronisation while the livestream is healthy, without overwriting
+  properties currently supplied by the livestream.
+
+## Command behaviour
+
+The plugin deliberately does not retry appliance commands after an HTTP 500 or
+timeout because Electrolux has confirmed that such a response can occur after
+the appliance has already executed the command.
+
+Where possible, resulting appliance state is reconciled through the livestream.
+
+## Compatibility
+
+- Homebridge `^1.8.0 || ^2.0.0`
+- Node.js `22`, `24` and `26` LTS lines
+
+The project CI validates Node.js 22, 24 and 26.
 
 ## Repository model
 
 GitLab is the authoritative development repository.
 
-A public GitHub mirror will also be maintained for visibility, collaboration
-and release integration.
+The public GitHub repository is the release, issue and Homebridge verification
+surface:
 
-## Licence
+https://github.com/ikthezeus/homebridge-electrolux-live
 
-Apache License 2.0.
+## Project origin and licence
 
-See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+The project is derived from `homebridge-electrolux-devices` by Tomek Kleszcz.
+
+The original project and this fork are distributed under the Apache License 2.0.
+The upstream source used to create this project is preserved by the
+`upstream-v1.1.1-baseline` Git tag.
+
+See [`NOTICE`](NOTICE) and [`LICENSE`](LICENSE).
