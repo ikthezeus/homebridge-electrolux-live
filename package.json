@@ -1,18 +1,18 @@
 {
-    "displayName": "Homebridge Electrolux Devices",
-    "name": "homebridge-electrolux-devices",
-    "version": "1.1.1",
-    "description": "Homebridge plugin for Electrolux devices",
+    "displayName": "Homebridge Electrolux Live",
+    "name": "homebridge-electrolux-live",
+    "version": "0.1.0",
+    "description": "Homebridge plugin for Electrolux appliances with livestream/SSE state synchronisation",
     "license": "Apache-2.0",
     "repository": {
         "type": "git",
-        "url": "https://github.com/tomekkleszcz/homebridge-electrolux-devices.git"
+        "url": "git+https://gitlab.com/homebridge4/homebridge-electrolux-live.git"
     },
     "bugs": {
-        "url": "https://github.com/tomekkleszcz/homebridge-electrolux-devices/issues"
+        "url": "https://gitlab.com/homebridge4/homebridge-electrolux-live/-/issues"
     },
     "engines": {
-        "node": "^18.20.4 || ^20.18.0 || ^22.10.0",
+        "node": "^18.20.4 || ^20.18.0 || ^22.10.0 || ^24.0.0",
         "homebridge": "^1.8.0 || ^2.0.0-beta.0"
     },
     "main": "dist/index.js",
@@ -23,7 +23,13 @@
         "watch": "npm run build && npm link && nodemon"
     },
     "keywords": [
-        "homebridge-plugin"
+        "homebridge-plugin",
+        "homebridge",
+        "homekit",
+        "electrolux",
+        "aeg",
+        "livestream",
+        "sse"
     ],
     "dependencies": {
         "axios": "^1.4.0",
@@ -44,5 +50,10 @@
         "ts-node": "^10.9.2",
         "typescript": "^5.7.3",
         "typescript-eslint": "^8.24.1"
-    }
+    },
+    "homepage": "https://gitlab.com/homebridge4/homebridge-electrolux-live",
+    "author": "Tom Bromley",
+    "contributors": [
+        "Tomek Kleszcz - original homebridge-electrolux-devices author"
+    ]
 }

@@ -1,40 +1,107 @@
-<p align="center">
+﻿# Homebridge Electrolux Live
 
-<img src="images/logo.png" width="192">
+Homebridge plugin for Electrolux and AEG appliances using the Electrolux
+Developer API, with a focus on real-time livestream/SSE state synchronisation
+and robust command handling.
 
-</p>
+> **Development status**
+>
+> Homebridge Electrolux Live is currently under active development and has not
+> yet reached its first production release.
 
-# Homebridge Electrolux Devices
+## Project origin
 
-![NPM Downloads](https://img.shields.io/npm/dm/homebridge-electrolux-devices)
-![NPM Version](https://img.shields.io/npm/v/homebridge-electrolux-devices)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/tomekkleszcz/homebridge-electrolux-devices/tests.yml?label=tests)
+Homebridge Electrolux Live is derived from
+[`homebridge-electrolux-devices`](https://github.com/tomekkleszcz/homebridge-electrolux-devices)
+by Tomek Kleszcz.
 
-This is a plugin for connecting Electrolux devices which are controlled by the [Electrolux](https://apps.apple.com/pl/app/electrolux/id1595816832) app to Homekit.
+The original project is licensed under the Apache License 2.0. The upstream
+source used to create this project is preserved by the
+`upstream-v1.1.1-baseline` Git tag.
 
-## 🧰 Installation
+See [`NOTICE`](NOTICE) and [`LICENSE`](LICENSE) for details.
 
-1. Connect all your Electrolux devices to the app and ensure you are able to control them.
-2. Install this plugin using the `npm install -g homebridge-electrolux-devices` command
-3. Open the Electrolux for Developers Dashboard here: https://developer.electrolux.one/login
-4. Sign in using your credentials from the Electrolux app
-5. Create new API Key and enter it in the plugin's configuration
-6. Generate new token under "Authorization" section
-7. Copy the Refresh Token and paste it in the plugin's configuration.
-8. Run the plugin :) The refresh token you generate expires in ~12h, so please make sure you enter a fresh one into the plugin's configuration. After you set it once, the plugin will handle token refresh for you automatically.
+## Why this project exists
 
-## 🌡️ Supported devices
+The original plugin uses the Electrolux Developer API successfully for device
+discovery and control, but primarily relies on the cached Get Appliance State
+API for state synchronisation.
 
-- Comfort 600 air conditioner
-- Well A5/AX 5 air purifier
-- Well A7 air purifier
-- Pure A9/AX 9 air purifier
-- UltimateHome 500 air purifier
+During investigation of an AEG Comfort 6000 air conditioner, Electrolux
+confirmed that:
 
-If your device is not on the list, please create the issue. I'll be more than happy to implement the support for your device. 😄
+- a command can successfully reach an appliance while the command API later
+  returns HTTP 500;
+- internal timeout/retry behaviour can cause the same command to be delivered
+  to the appliance two or three times;
+- Get Appliance State is cache-backed and is not intended for high-frequency
+  state tracking;
+- the Developer API livestream should be used for timely appliance state
+  updates.
 
-## 🐛 Known issues
+Homebridge Electrolux Live is being developed around that architecture.
 
-### Air conditioners
+## Planned architecture
 
-When air conditioner is set to Auto mode the maximum range value is set to 32, and the target temperature is set by changing minimum range value. If someone knows how to disable the temperature range in Auto mode, and allow to set the target temperature the same way as in Cool and Heat mode the PR will be more than welcome. :)
+### Appliance state
+
+Primary:
+
+- Electrolux Developer API livestream / Server-Sent Events (SSE).
+
+Fallback:
+
+- Get Appliance State during startup;
+- resynchronisation after a livestream reconnect;
+- optional low-frequency safety polling.
+
+### Commands
+
+Each HomeKit action will result in at most one command request from the plugin.
+
+The plugin will not retry appliance commands merely because Electrolux returns
+a timeout or HTTP 500. Where possible, the resulting appliance state will be
+confirmed through the livestream.
+
+### Command reconciliation
+
+The design will distinguish between:
+
+- command accepted and confirmed;
+- command result uncertain while awaiting livestream state;
+- genuine command failure.
+
+This is necessary because the Electrolux command API can currently report an
+error after the appliance has already executed the command.
+
+## Supported upstream devices
+
+The inherited upstream implementation currently includes support for:
+
+- Comfort 600 air conditioner;
+- Well A5 / AX5 air purifier;
+- Well A7 air purifier;
+- Pure A9 / AX9 air purifier;
+- UltimateHome 500 air purifier.
+
+Existing mappings will be retained while the state and command architecture is
+modernised.
+
+## Installation
+
+Do not install this development version on a production Homebridge instance yet.
+
+Installation and migration instructions will be added before the first release.
+
+## Repository model
+
+GitLab is the authoritative development repository.
+
+A public GitHub mirror will also be maintained for visibility, collaboration
+and release integration.
+
+## Licence
+
+Apache License 2.0.
+
+See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).

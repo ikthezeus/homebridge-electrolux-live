@@ -1,0 +1,34 @@
+﻿Homebridge Electrolux Live
+==========================
+
+Copyright 2026 Tom Bromley
+
+This project is a derivative work of:
+
+    homebridge-electrolux-devices
+    Original author: Tomek Kleszcz
+    https://github.com/tomekkleszcz/homebridge-electrolux-devices
+
+The upstream project is licensed under the Apache License, Version 2.0.
+
+Homebridge Electrolux Live retains the upstream Apache-2.0 licence and
+includes modifications made for this derivative project.
+
+Major planned differences from the upstream project include:
+
+- Electrolux Developer API livestream/SSE state synchronisation.
+- Reduced dependence on cached Get Appliance State polling.
+- Improved command-state reconciliation.
+- Protection against duplicate HomeKit command submission.
+- Improved handling of Electrolux command API timeout/HTTP 500 responses.
+- Updated Node.js and CI support.
+- Additional automated testing and release validation.
+
+The original upstream source used as the starting point is permanently
+identified in this repository by the tag:
+
+    upstream-v1.1.1-baseline
+
+That tag points to upstream commit:
+
+    aebc0115e34841871559bd2c489b0156dad3f513
