@@ -4,35 +4,36 @@
     "singular": true,
     "schema": {
         "type": "object",
+        "required": ["name", "apiKey", "refreshToken"],
         "properties": {
+            "name": {
+                "title": "Name",
+                "type": "string",
+                "default": "Electrolux"
+            },
             "apiKey": {
                 "title": "API key",
                 "type": "string",
-                "required": true,
                 "default": ""
             },
             "refreshToken": {
                 "title": "Refresh token",
                 "type": "string",
-                "required": true,
                 "default": ""
             },
             "pollingInterval": {
                 "title": "Polling interval",
                 "type": "number",
-                "required": false,
                 "default": 120
             },
             "carbonDioxideSensorAlarmValue": {
                 "title": "Carbon dioxide sensor alarm value",
                 "type": "number",
-                "required": false,
                 "default": 1000
             },
             "vocMolecularWeight": {
                 "title": "VOC molecular weight",
                 "type": "number",
-                "required": false,
                 "default": 30.026
             }
         }
