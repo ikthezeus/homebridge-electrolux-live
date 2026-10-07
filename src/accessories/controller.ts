@@ -31,12 +31,7 @@ export abstract class ElectroluxAccessoryController {
         body: Record<string, CharacteristicValue>
     ): Promise<void> {
         try {
-            if (
-                this.platform.tokenExpirationDate &&
-                Date.now() >= this.platform.tokenExpirationDate
-            ) {
-                await this.platform.refreshAccessToken();
-            }
+            await this.platform.ensureAccessToken();
 
             await this.platform.client.put(
                 `/api/v1/appliances/${this.item.applianceId}/command`,

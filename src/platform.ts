@@ -24,6 +24,7 @@ import axios, {
     InternalAxiosRequestConfig
 } from 'axios';
 import { ApplianceState } from './definitions/applianceState.js';
+import { ElectroluxLivestreamObserver } from './livestream.js';
 
 /*
     HomebridgePlatform
@@ -40,12 +41,25 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
     private refreshToken: string | null = null;
     tokenExpirationDate: number | null = null;
 
+    private tokenRefreshPromise: Promise<void> | null = null;
+    private authenticationBlocked = false;
+    private authenticationFailureLogged = false;
+    private refreshFailureCount = 0;
+    private nextRefreshAttemptAt = 0;
+    private configuredRefreshTokenFallbackAttempted = false;
+
+    private static readonly TOKEN_REFRESH_SKEW_MS = 60_000;
+    private static readonly TOKEN_REFRESH_MAX_ATTEMPTS = 3;
+    private static readonly TOKEN_REFRESH_MAX_BACKOFF_MS = 30_000;
+    private static readonly TOKEN_REFRESH_COOLDOWN_MAX_MS = 15 * 60_000;
+
     client!: AxiosInstance;
 
     regionalBaseUrl: string | null = null;
 
     private devicesDiscovered = false;
     private pollingInterval: NodeJS.Timeout | null = null;
+    private livestreamObserver: ElectroluxLivestreamObserver | null = null;
 
     constructor(
         public readonly log: Logger,
@@ -65,10 +79,17 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
 
                 await this.loadAuthData();
 
+                this.livestreamObserver = new ElectroluxLivestreamObserver(
+                    this
+                );
+                this.livestreamObserver.start();
+
                 // run the method to discover / register your devices as accessories
                 await this.discoverDevices();
             } catch (err) {
-                this.log.warn((err as Error).message);
+                if (!this.authenticationBlocked) {
+                    this.log.warn((err as Error).message);
+                }
             } finally {
                 if (
                     this.config.pollingInterval &&
@@ -90,6 +111,9 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
             if (this.pollingInterval) {
                 clearInterval(this.pollingInterval);
             }
+
+            this.livestreamObserver?.stop();
+            this.livestreamObserver = null;
         });
     }
 
@@ -122,10 +146,12 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
         this.client.interceptors.request.use(this.authInterceptor.bind(this));
     }
 
-    authInterceptor(value: InternalAxiosRequestConfig<unknown>) {
+    async authInterceptor(value: InternalAxiosRequestConfig<unknown>) {
         if (value.url === '/api/v1/token/refresh') {
             return value;
         }
+
+        await this.ensureAccessToken();
 
         if (this.accessToken) {
             value.headers.Authorization = `Bearer ${this.accessToken}`;
@@ -134,96 +160,237 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
         return value;
     }
 
-    async loadAuthData() {
-        const storagePath = path.format({
+    private getAuthStoragePath() {
+        return path.format({
             dir: this.api.user.storagePath(),
             base: 'homebridge_electrolux_device_persist.json'
         });
+    }
 
-        /* Check if the file exists. */
-        const exists = fs.existsSync(storagePath);
-        /* If the file does not exist, get the refresh token from the config to get a new access token. */
-        if (!exists) {
+    async loadAuthData() {
+        const storagePath = this.getAuthStoragePath();
+
+        if (!fs.existsSync(storagePath)) {
             this.refreshToken = this.config.refreshToken;
+
             if (!this.refreshToken) {
                 throw new Error(
-                    'Please make sure the plugin is configured properly. Check https://github.com/tomekkleszcz/homebridge-electrolux-devices?tab=readme-ov-file#-installation for more information.'
+                    'Please make sure the plugin is configured properly. A refresh token is required.'
                 );
             }
 
-            try {
-                await this.refreshAccessToken();
-            } catch (err) {
-                if (err instanceof AxiosError) {
-                    const axiosError = err as AxiosError;
-                    if (axiosError.response?.status === 401) {
-                        throw new Error(
-                            'Invalid refresh token! Please configure the plugin again using this guide: https://github.com/tomekkleszcz/homebridge-electrolux-devices?tab=readme-ov-file#-installation'
-                        );
-                    }
-                }
-            }
+            await this.refreshAccessToken();
             return;
         }
 
-        /* Read the file and parse the JSON. */
         const json = fs.readFileSync(storagePath, 'utf8');
 
+        let data: {
+            version: number;
+            accessToken: string;
+            refreshToken: string;
+            tokenExpirationDate: number;
+        };
+
         try {
-            const data = JSON.parse(json);
-
-            /* If the file version is not 1, get the refresh token from the config to get a new access token. */
-            if (data.version !== 1) {
-                this.refreshToken = this.config.refreshToken;
-                if (!this.refreshToken) {
-                    throw new Error(
-                        'Please make sure the plugin is configured properly. Check https://github.com/tomekkleszcz/homebridge-electrolux-devices?tab=readme-ov-file#-installation for more information.'
-                    );
-                }
-
-                await this.refreshAccessToken();
-                return;
-            }
-
-            /* Set the auth data from the file. */
-            this.accessToken = data.accessToken;
-            this.refreshToken = data.refreshToken;
-            this.tokenExpirationDate = data.tokenExpirationDate;
-
-            if (
-                !this.tokenExpirationDate ||
-                Date.now() >= this.tokenExpirationDate
-            ) {
-                await this.refreshAccessToken();
-            }
+            data = JSON.parse(json);
         } catch {
-            fs.unlinkSync(storagePath);
-
             throw new Error(
-                'Malformed auth data file! Please configure the plugin again using this guide: https://github.com/tomekkleszcz/homebridge-electrolux-devices?tab=readme-ov-file#-installation'
+                'Malformed Electrolux authentication data file. The file has been left untouched.'
             );
         }
+
+        if (
+            data.version !== 1 ||
+            typeof data.accessToken !== 'string' ||
+            typeof data.refreshToken !== 'string' ||
+            typeof data.tokenExpirationDate !== 'number'
+        ) {
+            throw new Error(
+                'Invalid Electrolux authentication data file. The file has been left untouched.'
+            );
+        }
+
+        this.accessToken = data.accessToken;
+        this.refreshToken = data.refreshToken;
+        this.tokenExpirationDate = data.tokenExpirationDate;
+
+        await this.ensureAccessToken();
+    }
+
+    async ensureAccessToken() {
+        if (this.authenticationBlocked) {
+            throw new Error(
+                'Electrolux authentication is blocked because the refresh token was rejected. Update the refresh token and restart Homebridge.'
+            );
+        }
+
+        if (
+            this.accessToken &&
+            this.tokenExpirationDate &&
+            Date.now() <
+                this.tokenExpirationDate -
+                    ElectroluxDevicesPlatform.TOKEN_REFRESH_SKEW_MS
+        ) {
+            return;
+        }
+
+        await this.refreshAccessToken();
     }
 
     async refreshAccessToken() {
+        if (this.authenticationBlocked) {
+            throw new Error(
+                'Electrolux authentication is blocked because the refresh token was rejected. Update the refresh token and restart Homebridge.'
+            );
+        }
+
+        const retryDelay = this.getAuthenticationRetryDelayMs();
+
+        if (retryDelay > 0) {
+            throw new Error(
+                `Electrolux token refresh is temporarily backed off for another ${Math.ceil(
+                    retryDelay / 1000
+                )} seconds.`
+            );
+        }
+
+        if (this.tokenRefreshPromise) {
+            return this.tokenRefreshPromise;
+        }
+
+        const refreshPromise = this.performAccessTokenRefresh();
+        this.tokenRefreshPromise = refreshPromise;
+
+        try {
+            await refreshPromise;
+        } finally {
+            if (this.tokenRefreshPromise === refreshPromise) {
+                this.tokenRefreshPromise = null;
+            }
+        }
+    }
+
+    isAuthenticationBlocked() {
+        return this.authenticationBlocked;
+    }
+
+    getAuthenticationRetryDelayMs() {
+        return Math.max(0, this.nextRefreshAttemptAt - Date.now());
+    }
+
+    private async performAccessTokenRefresh() {
         if (!this.refreshToken) {
-            return;
+            this.blockAuthentication('Refresh token is missing.');
+
+            throw new Error(
+                'Electrolux refresh token is missing. Update the plugin configuration and restart Homebridge.'
+            );
         }
 
         this.log.info('Refreshing access token...');
 
-        const response = await this.client.post<TokenResponse>(
-            '/api/v1/token/refresh',
-            {
-                refreshToken: this.refreshToken
+        for (
+            let attempt = 1;
+            attempt <= ElectroluxDevicesPlatform.TOKEN_REFRESH_MAX_ATTEMPTS;
+            attempt++
+        ) {
+            try {
+                const response = await this.client.post<TokenResponse>(
+                    '/api/v1/token/refresh',
+                    {
+                        refreshToken: this.refreshToken
+                    }
+                );
+
+                if (
+                    !response.data.accessToken ||
+                    !response.data.refreshToken ||
+                    !response.data.expiresIn
+                ) {
+                    throw new Error(
+                        'Electrolux returned an incomplete token refresh response.'
+                    );
+                }
+
+                this.accessToken = response.data.accessToken;
+                this.refreshToken = response.data.refreshToken;
+                this.tokenExpirationDate =
+                    Date.now() + response.data.expiresIn * 1000;
+
+                this.persistAuthData();
+                this.resetAuthenticationFailureState();
+
+                this.log.info('Access token refreshed!');
+                return;
+            } catch (error) {
+                if (!axios.isAxiosError(error)) {
+                    throw error;
+                }
+
+                const message = this.getRefreshErrorMessage(error);
+
+                if (this.isPermanentRefreshFailure(error)) {
+                    if (this.tryConfiguredRefreshTokenFallback()) {
+                        return this.performAccessTokenRefresh();
+                    }
+
+                    this.blockAuthentication(message);
+
+                    throw new Error(
+                        `Electrolux rejected the refresh token: ${message}`
+                    );
+                }
+
+                if (!this.isTransientRefreshFailure(error)) {
+                    throw new Error(
+                        `Electrolux token refresh failed: ${message}`
+                    );
+                }
+
+                const retryDelay = this.calculateRefreshRetryDelayMs(
+                    error,
+                    attempt
+                );
+
+                if (
+                    attempt <
+                    ElectroluxDevicesPlatform.TOKEN_REFRESH_MAX_ATTEMPTS
+                ) {
+                    this.log.warn(
+                        'Electrolux token refresh attempt %d/%d failed: %s. Retrying in %.1f seconds.',
+                        attempt,
+                        ElectroluxDevicesPlatform.TOKEN_REFRESH_MAX_ATTEMPTS,
+                        message,
+                        retryDelay / 1000
+                    );
+
+                    await this.sleep(retryDelay);
+                    continue;
+                }
+
+                this.registerTransientRefreshFailure(error);
+
+                throw new Error(
+                    `Electrolux token refresh temporarily failed after ${attempt} attempts: ${message}`
+                );
             }
-        );
+        }
+    }
 
-        this.accessToken = response.data.accessToken;
-        this.refreshToken = response.data.refreshToken;
-        this.tokenExpirationDate = Date.now() + response.data.expiresIn * 1000;
+    private persistAuthData() {
+        if (
+            !this.accessToken ||
+            !this.refreshToken ||
+            !this.tokenExpirationDate
+        ) {
+            throw new Error(
+                'Cannot persist incomplete Electrolux authentication data.'
+            );
+        }
 
-        this.log.info('Access token refreshed!');
+        const storagePath = this.getAuthStoragePath();
+        const temporaryPath = `${storagePath}.tmp-${process.pid}`;
 
         const json = JSON.stringify({
             version: 1,
@@ -232,19 +399,184 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
             tokenExpirationDate: this.tokenExpirationDate
         });
 
-        const storagePath = path.format({
-            dir: this.api.user.storagePath(),
-            base: 'homebridge_electrolux_device_persist.json'
-        });
-
-        fs.writeFile(storagePath, json, 'utf8', (err) => {
-            if (err) {
-                this.log.error(
-                    'An error occurred while saving auth data: ',
-                    err.message
-                );
+        try {
+            fs.writeFileSync(temporaryPath, json, 'utf8');
+            fs.renameSync(temporaryPath, storagePath);
+        } catch (error) {
+            try {
+                if (fs.existsSync(temporaryPath)) {
+                    fs.unlinkSync(temporaryPath);
+                }
+            } catch {
+                // Preserve the original persistence error.
             }
-        });
+
+            throw new Error(
+                `Failed to persist rotated Electrolux authentication data: ${
+                    (error as Error).message
+                }`
+            );
+        }
+    }
+
+    private tryConfiguredRefreshTokenFallback() {
+        if (this.configuredRefreshTokenFallbackAttempted) {
+            return false;
+        }
+
+        const configuredRefreshToken =
+            typeof this.config.refreshToken === 'string'
+                ? this.config.refreshToken.trim()
+                : '';
+
+        if (
+            !configuredRefreshToken ||
+            configuredRefreshToken === this.refreshToken
+        ) {
+            return false;
+        }
+
+        this.configuredRefreshTokenFallbackAttempted = true;
+        this.refreshToken = configuredRefreshToken;
+
+        this.log.warn(
+            'The persisted Electrolux refresh token was rejected. Trying the different refresh token currently configured in Homebridge once.'
+        );
+
+        return true;
+    }
+
+    private isPermanentRefreshFailure(error: AxiosError) {
+        const status = error.response?.status;
+
+        return (
+            status !== undefined &&
+            status >= 400 &&
+            status < 500 &&
+            status !== 408 &&
+            status !== 429
+        );
+    }
+
+    private isTransientRefreshFailure(error: AxiosError) {
+        const status = error.response?.status;
+
+        return (
+            status === undefined ||
+            status === 408 ||
+            status === 429 ||
+            status >= 500
+        );
+    }
+
+    private calculateRefreshRetryDelayMs(error: AxiosError, attempt: number) {
+        const retryAfter = this.getRetryAfterMs(error);
+
+        const baseDelay = Math.min(
+            1000 * 2 ** (attempt - 1),
+            ElectroluxDevicesPlatform.TOKEN_REFRESH_MAX_BACKOFF_MS
+        );
+
+        const minimumDelay = Math.max(baseDelay, retryAfter ?? 0);
+        const jitter = Math.round(Math.random() * minimumDelay * 0.3);
+
+        return minimumDelay + jitter;
+    }
+
+    private registerTransientRefreshFailure(error: AxiosError) {
+        this.refreshFailureCount++;
+
+        const cooldown = Math.min(
+            60_000 * 2 ** (this.refreshFailureCount - 1),
+            ElectroluxDevicesPlatform.TOKEN_REFRESH_COOLDOWN_MAX_MS
+        );
+
+        const retryAfter = this.getRetryAfterMs(error) ?? 0;
+
+        this.nextRefreshAttemptAt = Date.now() + Math.max(cooldown, retryAfter);
+
+        this.log.warn(
+            'Electrolux authentication refresh is temporarily paused for %.1f seconds to avoid repeated requests.',
+            this.getAuthenticationRetryDelayMs() / 1000
+        );
+    }
+
+    private getRetryAfterMs(error: AxiosError) {
+        const headers = error.response?.headers as
+            | {
+                  get?: (name: string) => unknown;
+                  [key: string]: unknown;
+              }
+            | undefined;
+
+        const rawValue =
+            typeof headers?.get === 'function'
+                ? headers.get('retry-after')
+                : headers?.['retry-after'];
+
+        if (rawValue === undefined || rawValue === null) {
+            return null;
+        }
+
+        const value = String(rawValue).trim();
+
+        const seconds = Number(value);
+
+        if (Number.isFinite(seconds) && seconds >= 0) {
+            return seconds * 1000;
+        }
+
+        const date = Date.parse(value);
+
+        if (Number.isNaN(date)) {
+            return null;
+        }
+
+        return Math.max(0, date - Date.now());
+    }
+
+    private getRefreshErrorMessage(error: AxiosError) {
+        const data = error.response?.data;
+
+        if (
+            data &&
+            typeof data === 'object' &&
+            'message' in data &&
+            typeof (data as { message?: unknown }).message === 'string'
+        ) {
+            return (data as { message: string }).message;
+        }
+
+        if (typeof data === 'string' && data.length > 0) {
+            return data;
+        }
+
+        return error.message;
+    }
+
+    private blockAuthentication(message: string) {
+        this.authenticationBlocked = true;
+        this.nextRefreshAttemptAt = 0;
+
+        if (!this.authenticationFailureLogged) {
+            this.authenticationFailureLogged = true;
+
+            this.log.error(
+                'Electrolux authentication has been disabled for this Homebridge session because the refresh token was rejected: %s Update the refresh token and restart Homebridge. Automatic retries have been stopped.',
+                message
+            );
+        }
+    }
+
+    private resetAuthenticationFailureState() {
+        this.authenticationBlocked = false;
+        this.authenticationFailureLogged = false;
+        this.refreshFailureCount = 0;
+        this.nextRefreshAttemptAt = 0;
+    }
+
+    private async sleep(milliseconds: number) {
+        await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
     }
 
     private async getAppliances() {
@@ -396,11 +728,13 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
     async pollStatus() {
         try {
             if (
-                !this.tokenExpirationDate ||
-                Date.now() >= this.tokenExpirationDate
+                this.authenticationBlocked ||
+                this.getAuthenticationRetryDelayMs() > 0
             ) {
-                await this.refreshAccessToken();
+                return;
             }
+
+            await this.ensureAccessToken();
 
             if (!this.devicesDiscovered) {
                 await this.discoverDevices();
