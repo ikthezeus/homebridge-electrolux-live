@@ -1,15 +1,15 @@
 {
     "displayName": "Homebridge Electrolux Live",
     "name": "homebridge-electrolux-live",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Homebridge plugin for Electrolux appliances with livestream/SSE state synchronisation",
     "license": "Apache-2.0",
     "repository": {
         "type": "git",
-        "url": "git+https://gitlab.com/homebridge4/homebridge-electrolux-live.git"
+        "url": "git+https://github.com/ikthezeus/homebridge-electrolux-live.git"
     },
     "bugs": {
-        "url": "https://gitlab.com/homebridge4/homebridge-electrolux-live/-/issues"
+        "url": "https://github.com/ikthezeus/homebridge-electrolux-live/issues"
     },
     "engines": {
         "node": "^22.10.0 || ^24.0.0",
@@ -24,6 +24,7 @@
     },
     "keywords": [
         "homebridge-plugin",
+        "supports-hap",
         "homebridge",
         "homekit",
         "electrolux",
@@ -50,7 +51,7 @@
         "typescript": "^5.7.3",
         "typescript-eslint": "^8.24.1"
     },
-    "homepage": "https://gitlab.com/homebridge4/homebridge-electrolux-live",
+    "homepage": "https://github.com/ikthezeus/homebridge-electrolux-live#readme",
     "author": {
         "name": "ikthezeus"
     },

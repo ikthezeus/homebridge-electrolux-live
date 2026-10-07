@@ -1,0 +1,37 @@
+name: Sync GitLab Issue Actions to GitHub
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: gitlab-github-issue-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Sync controlled GitLab actions to GitHub
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_ISSUE_MIRROR_TOKEN }}
+          GITLAB_PROJECT: homebridge4/homebridge-electrolux-live
+          GITLAB_BASE_URL: https://gitlab.com
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node .github/scripts/mirror-gitlab-issue-to-github.mjs

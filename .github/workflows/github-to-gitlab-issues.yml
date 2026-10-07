@@ -1,0 +1,53 @@
+name: Mirror GitHub Issues to GitLab
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+      - deleted
+      - closed
+      - reopened
+      - labeled
+      - unlabeled
+      - assigned
+      - unassigned
+  issue_comment:
+    types:
+      - created
+      - edited
+      - deleted
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: github-gitlab-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: ${{ github.event.issue.pull_request == null }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Mirror issue event to GitLab
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_ISSUE_MIRROR_TOKEN }}
+          GITLAB_PROJECT: homebridge4/homebridge-electrolux-live
+          GITLAB_BASE_URL: https://gitlab.com
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_ACTION: ${{ github.event.action }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node .github/scripts/mirror-github-issue-to-gitlab.mjs
