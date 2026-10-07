@@ -4,6 +4,7 @@ import { StringDecoder } from 'node:string_decoder';
 import type { AxiosResponse } from 'axios';
 
 import type { ElectroluxDevicesPlatform } from './platform.js';
+import type { ApplianceState } from './definitions/applianceState.js';
 
 type LivestreamAppliance = {
     applianceId: string;
@@ -21,6 +22,41 @@ export type LivestreamEvent = {
     value?: unknown;
     [key: string]: unknown;
 };
+
+export function applyLivestreamEvent(
+    state: ApplianceState,
+    event: LivestreamEvent
+): boolean {
+    if (
+        !event.applianceId ||
+        event.applianceId !== state.applianceId ||
+        !event.property ||
+        event.value === undefined
+    ) {
+        return false;
+    }
+
+    if (event.property === 'connectionState') {
+        if (event.value !== 'Connected' && event.value !== 'Disconnected') {
+            return false;
+        }
+
+        state.connectionState = event.value;
+        return true;
+    }
+
+    const reported = state.properties.reported as unknown as Record<
+        string,
+        unknown
+    >;
+
+    if (!(event.property in reported)) {
+        return false;
+    }
+
+    reported[event.property] = event.value;
+    return true;
+}
 
 export class SseParser {
     private readonly decoder = new StringDecoder('utf8');
@@ -176,9 +212,19 @@ export class ElectroluxLivestreamObserver {
     private connecting = false;
     private reconnectTimer: NodeJS.Timeout | null = null;
     private stream: Readable | null = null;
+    private connected = false;
     private backoffMs = ElectroluxLivestreamObserver.INITIAL_BACKOFF_MS;
+    private readonly subscriptions = new Map<string, Set<string>>();
 
     constructor(private readonly platform: ElectroluxDevicesPlatform) {}
+
+    get isConnected() {
+        return this.connected;
+    }
+
+    getSubscribedProperties(applianceId: string): ReadonlySet<string> {
+        return this.subscriptions.get(applianceId) ?? new Set<string>();
+    }
 
     start() {
         if (!this.stopped) {
@@ -187,7 +233,7 @@ export class ElectroluxLivestreamObserver {
 
         this.stopped = false;
         this.platform.log.info(
-            '[Livestream/M1] Starting observation-only Electrolux livestream'
+            '[Livestream/M2] Starting authoritative Electrolux livestream'
         );
 
         void this.connect();
@@ -199,6 +245,7 @@ export class ElectroluxLivestreamObserver {
         }
 
         this.stopped = true;
+        this.connected = false;
 
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
@@ -210,7 +257,7 @@ export class ElectroluxLivestreamObserver {
             this.stream = null;
         }
 
-        this.platform.log.info('[Livestream/M1] Livestream stopped');
+        this.platform.log.info('[Livestream/M2] Livestream stopped');
     }
 
     private async connect() {
@@ -257,9 +304,10 @@ export class ElectroluxLivestreamObserver {
             }
 
             this.stream = response.data;
+            this.connected = true;
 
             this.platform.log.info(
-                '[Livestream/M1] SSE connection established'
+                '[Livestream/M2] SSE connection established'
             );
 
             this.observeStream(response.data);
@@ -267,13 +315,13 @@ export class ElectroluxLivestreamObserver {
             if (!this.stopped) {
                 if (this.platform.isAuthenticationBlocked()) {
                     this.platform.log.error(
-                        '[Livestream/M1] Authentication was rejected. Livestream reconnects are paused until credentials are updated and Homebridge is restarted.'
+                        '[Livestream/M2] Authentication was rejected. Livestream reconnects are paused until credentials are updated and Homebridge is restarted.'
                     );
                     return;
                 }
 
                 this.platform.log.warn(
-                    '[Livestream/M1] Connection failed: %s',
+                    '[Livestream/M2] Connection failed: %s',
                     this.formatError(error)
                 );
 
@@ -299,13 +347,15 @@ export class ElectroluxLivestreamObserver {
                 }
 
                 this.platform.log.info(
-                    '[Livestream/M1] SSE event: %s',
+                    '[Livestream/M2] SSE event: %s',
                     JSON.stringify(event)
                 );
+
+                this.platform.handleLivestreamEvent(event);
             },
             (data, error) => {
                 this.platform.log.warn(
-                    '[Livestream/M1] Could not parse SSE data as JSON: %s (%s)',
+                    '[Livestream/M2] Could not parse SSE data as JSON: %s (%s)',
                     data,
                     this.formatError(error)
                 );
@@ -326,6 +376,7 @@ export class ElectroluxLivestreamObserver {
             }
 
             if (this.stream === stream) {
+                this.connected = false;
                 this.stream = null;
             }
 
@@ -335,12 +386,12 @@ export class ElectroluxLivestreamObserver {
 
             if (error) {
                 this.platform.log.warn(
-                    '[Livestream/M1] SSE stream %s: %s',
+                    '[Livestream/M2] SSE stream %s: %s',
                     reason,
                     this.formatError(error)
                 );
             } else {
-                this.platform.log.warn('[Livestream/M1] SSE stream %s', reason);
+                this.platform.log.warn('[Livestream/M2] SSE stream %s', reason);
             }
 
             this.scheduleReconnect();
@@ -377,7 +428,7 @@ export class ElectroluxLivestreamObserver {
         const delay = Math.max(livestreamDelay, minimumDelayMs);
 
         this.platform.log.info(
-            `[Livestream/M1] Reconnecting in ${(delay / 1000).toFixed(1)} seconds`
+            `[Livestream/M2] Reconnecting in ${(delay / 1000).toFixed(1)} seconds`
         );
 
         this.reconnectTimer = setTimeout(() => {
@@ -392,13 +443,22 @@ export class ElectroluxLivestreamObserver {
     }
 
     private logConfiguration(config: LivestreamConfig) {
+        this.subscriptions.clear();
+
+        for (const appliance of config.appliances) {
+            this.subscriptions.set(
+                appliance.applianceId,
+                new Set(appliance.properties)
+            );
+        }
+
         const subscriptions = config.appliances.map((appliance) => ({
             applianceId: appliance.applianceId,
             properties: appliance.properties
         }));
 
         this.platform.log.info(
-            '[Livestream/M1] Livestream configuration contains %d appliance subscription(s): %s',
+            '[Livestream/M2] Livestream configuration contains %d appliance subscription(s): %s',
             subscriptions.length,
             JSON.stringify(subscriptions)
         );

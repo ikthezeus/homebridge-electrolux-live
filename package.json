@@ -1,7 +1,7 @@
 {
     "displayName": "Homebridge Electrolux Live",
     "name": "homebridge-electrolux-live",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "description": "Homebridge plugin for Electrolux appliances with livestream/SSE state synchronisation",
     "license": "Apache-2.0",
     "repository": {

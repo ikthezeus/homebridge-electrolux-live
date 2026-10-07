@@ -38,6 +38,25 @@ export abstract class ElectroluxAccessoryController {
                 body
             );
         } catch (error: unknown) {
+            const status = (
+                error as {
+                    response?: {
+                        status?: number;
+                    };
+                }
+            ).response?.status;
+
+            if (status === 500) {
+                this.platform.log.warn(
+                    'Electrolux command returned HTTP 500; delivery is uncertain. Waiting for livestream state confirmation.',
+                    'url: ',
+                    `/api/v1/appliances/${this.item.applianceId}/command`,
+                    'body: ',
+                    body
+                );
+                return;
+            }
+
             this.platform.log.error(
                 'An error occurred while sending command: ',
                 (error as Error).message,

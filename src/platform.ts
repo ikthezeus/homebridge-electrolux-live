@@ -24,7 +24,11 @@ import axios, {
     InternalAxiosRequestConfig
 } from 'axios';
 import { ApplianceState } from './definitions/applianceState.js';
-import { ElectroluxLivestreamObserver } from './livestream.js';
+import {
+    applyLivestreamEvent,
+    ElectroluxLivestreamObserver,
+    type LivestreamEvent
+} from './livestream.js';
 
 /*
     HomebridgePlatform
@@ -60,6 +64,9 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
     private devicesDiscovered = false;
     private pollingInterval: NodeJS.Timeout | null = null;
     private livestreamObserver: ElectroluxLivestreamObserver | null = null;
+    private lastLivestreamResyncAt = 0;
+
+    private static readonly LIVESTREAM_RESYNC_INTERVAL_MS = 15 * 60_000;
 
     constructor(
         public readonly log: Logger,
@@ -79,13 +86,15 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
 
                 await this.loadAuthData();
 
+                // Establish the complete startup state before allowing
+                // livestream events to become authoritative.
+                await this.discoverDevices();
+
                 this.livestreamObserver = new ElectroluxLivestreamObserver(
                     this
                 );
                 this.livestreamObserver.start();
-
-                // run the method to discover / register your devices as accessories
-                await this.discoverDevices();
+                this.lastLivestreamResyncAt = Date.now();
             } catch (err) {
                 if (!this.authenticationBlocked) {
                     this.log.warn((err as Error).message);
@@ -725,12 +734,58 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
         this.devicesDiscovered = true;
     }
 
+    handleLivestreamEvent(event: LivestreamEvent) {
+        if (!event.applianceId) {
+            return;
+        }
+
+        const uuid = this.api.hap.uuid.generate(event.applianceId);
+
+        const existingAccessory = this.accessories.find(
+            (accessory) => accessory.platformAccessory.UUID === uuid
+        );
+
+        const controller = existingAccessory?.controller;
+
+        if (!controller) {
+            this.log.debug(
+                '[Livestream/M2] Ignoring event for appliance without an active controller: %s',
+                event.applianceId
+            );
+            return;
+        }
+
+        if (!applyLivestreamEvent(controller.state, event)) {
+            this.log.debug(
+                '[Livestream/M2] Ignoring unsupported state event: %s',
+                JSON.stringify(event)
+            );
+            return;
+        }
+
+        controller.update(controller.state);
+    }
+
     async pollStatus() {
         try {
             if (
                 this.authenticationBlocked ||
                 this.getAuthenticationRetryDelayMs() > 0
             ) {
+                return;
+            }
+
+            const livestreamConnected =
+                this.livestreamObserver?.isConnected === true;
+
+            if (
+                livestreamConnected &&
+                Date.now() - this.lastLivestreamResyncAt <
+                    ElectroluxDevicesPlatform.LIVESTREAM_RESYNC_INTERVAL_MS
+            ) {
+                this.log.debug(
+                    '[Livestream/M2] Livestream healthy; routine state poll skipped.'
+                );
                 return;
             }
 
@@ -745,25 +800,65 @@ export class ElectroluxDevicesPlatform implements DynamicPlatformPlugin {
 
             const appliances = await this.getAppliances();
 
-            appliances.map(async (appliance) => {
-                const uuid = this.api.hap.uuid.generate(appliance.applianceId);
+            await Promise.all(
+                appliances.map(async (appliance) => {
+                    const uuid = this.api.hap.uuid.generate(
+                        appliance.applianceId
+                    );
 
-                const existingAccessory = this.accessories.find(
-                    (accessory) => accessory.platformAccessory.UUID === uuid
-                );
-                if (!existingAccessory) {
-                    return;
-                }
+                    const existingAccessory = this.accessories.find(
+                        (accessory) => accessory.platformAccessory.UUID === uuid
+                    );
+                    if (!existingAccessory) {
+                        return;
+                    }
 
-                const state = await this.getApplianceState(
-                    appliance.applianceId
-                );
-                if (!state) {
-                    return;
-                }
+                    const state = await this.getApplianceState(
+                        appliance.applianceId
+                    );
+                    if (!state) {
+                        return;
+                    }
 
-                existingAccessory.controller?.update(state);
-            });
+                    const controller = existingAccessory.controller;
+
+                    if (!controller) {
+                        return;
+                    }
+
+                    if (livestreamConnected && this.livestreamObserver) {
+                        const streamedProperties =
+                            this.livestreamObserver.getSubscribedProperties(
+                                appliance.applianceId
+                            );
+
+                        for (const property of streamedProperties) {
+                            if (property === 'connectionState') {
+                                state.connectionState =
+                                    controller.state.connectionState;
+                                continue;
+                            }
+
+                            const currentReported = controller.state.properties
+                                .reported as unknown as Record<string, unknown>;
+
+                            const polledReported = state.properties
+                                .reported as unknown as Record<string, unknown>;
+
+                            if (property in currentReported) {
+                                polledReported[property] =
+                                    currentReported[property];
+                            }
+                        }
+                    }
+
+                    controller.update(state);
+                })
+            );
+
+            if (livestreamConnected) {
+                this.lastLivestreamResyncAt = Date.now();
+            }
 
             this.log.debug('Appliances status polled!');
         } catch (err) {
