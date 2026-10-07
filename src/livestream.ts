@@ -377,8 +377,7 @@ export class ElectroluxLivestreamObserver {
         const delay = Math.max(livestreamDelay, minimumDelayMs);
 
         this.platform.log.info(
-            '[Livestream/M1] Reconnecting in %.1f seconds',
-            delay / 1000
+            `[Livestream/M1] Reconnecting in ${(delay / 1000).toFixed(1)} seconds`
         );
 
         this.reconnectTimer = setTimeout(() => {
